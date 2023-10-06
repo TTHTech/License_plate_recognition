@@ -1,0 +1,9 @@
+https://docs.ultralytics.com/modes/train/
+
+https://docs.ultralytics.com/yolov5/tutorials/train_custom_data/
+
+https://docs.ultralytics.com/yolov5/tutorials/pytorch_hub_model_loading/#inference-settings
+
+https://github.com/roboflow/notebooks
+
+https://docs.roboflow.com/inference/hosted-api
