@@ -1,20 +1,27 @@
-# OCR biển số xe Việt Nam bằng RapidOCR (PP-OCR chạy trên ONNX).
-# Model pretrained, không cần dataset / không cần train.
-# Pipeline: phóng to + viền trắng -> RapidOCR dò & đọc -> gom dòng theo toạ độ
-#           -> bỏ dòng nhiễu (logo) -> sửa lỗi theo định dạng biển VN.
+"""Đọc biển số xe Việt Nam bằng RapidOCR (PP-OCR chạy trên ONNX).
+
+Model pretrained, không cần dataset / không cần train.
+Pipeline: phóng to + viền trắng -> RapidOCR dò & đọc -> gom dòng theo toạ độ
+          -> bỏ dòng nhiễu (logo) -> sửa lỗi theo định dạng biển VN.
+
+API công khai:
+    read_plate(image, alt=None) -> (ảnh minh hoạ, chuỗi biển số)
+    deskew(image)               -> ảnh PIL đã nắn thẳng
+"""
 import re
 import statistics
-import numpy as np
+
 import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from rapidocr_onnxruntime import RapidOCR
 
-LETTERS = 'ABCDEFGHKLMNPSTUVXYZ'
+LETTERS = "ABCDEFGHKLMNPSTUVXYZ"
 # Map chữ -> số cho các vị trí bắt buộc là số (lỗi nhầm thường gặp)
 DIGIT_MAP = {
-    'O': '0', 'Q': '0', 'D': '0', 'U': '0',
-    'I': '1', 'J': '1', 'Z': '2', 'A': '4',
-    'S': '5', 'G': '6', 'T': '7', 'B': '8',
+    "O": "0", "Q": "0", "D": "0", "U": "0",
+    "I": "1", "J": "1", "Z": "2", "A": "4",
+    "S": "5", "G": "6", "T": "7", "B": "8",
 }
 
 _engine = None
@@ -36,11 +43,11 @@ def _fix_top(s):
     (Series có thể là 1 chữ, chữ+số, hoặc 2 chữ như 29-AB, nên không ép phần này.)"""
     if not s:
         return s
-    return ''.join(_dg(c) if i < 2 else c for i, c in enumerate(s))
+    return "".join(_dg(c) if i < 2 else c for i, c in enumerate(s))
 
 
 def _fix_bottom(s):
-    return ''.join(_dg(c) for c in s)
+    return "".join(_dg(c) for c in s)
 
 
 def _score(text):
@@ -48,13 +55,13 @@ def _score(text):
     if not text:
         return -1
     s = sum(c.isalnum() for c in text)              # càng nhiều ký tự càng tốt
-    if re.match(r'^\d{2}[A-Z]{1,2}\d?-\d{4,5}$', text):
+    if re.match(r"^\d{2}[A-Z]{1,2}\d?-\d{4,5}$", text):
         s += 100                                    # khớp dạng biển 2 dòng chuẩn
-    elif re.match(r'^\d{2}[A-Z]{1,2}\d?\d{4,5}$', text):
+    elif re.match(r"^\d{2}[A-Z]{1,2}\d?\d{4,5}$", text):
         s += 60                                     # đúng dạng nhưng thiếu '-'
-    elif re.match(r'^\d{2}[A-Z]', text):
+    elif re.match(r"^\d{2}[A-Z]", text):
         s += 20
-    if '-' in text:
+    if "-" in text:
         s += 5
     return s
 
@@ -64,7 +71,7 @@ def _read_one(image):
     W, H = image.size
     two_line_shape = (W / max(H, 1)) < 2.2
 
-    arr = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
+    arr = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2BGR)
     big = cv2.resize(arr, (W * 3, H * 3), interpolation=cv2.INTER_CUBIC)
     big = cv2.copyMakeBorder(big, 20, 20, 20, 20,
                              cv2.BORDER_CONSTANT, value=(255, 255, 255))
@@ -73,12 +80,12 @@ def _read_one(image):
     disp = Image.fromarray(cv2.cvtColor(big, cv2.COLOR_BGR2RGB))
 
     if not res:
-        return disp, ''
+        return disp, ""
 
     # Vẽ khung minh hoạ
     draw = ImageDraw.Draw(disp)
     try:
-        font = ImageFont.truetype('arial.ttf', 26)
+        font = ImageFont.truetype("arial.ttf", 26)
     except Exception:
         font = ImageFont.load_default()
 
@@ -86,7 +93,7 @@ def _read_one(image):
     for box, text, score in res:
         xs = [p[0] for p in box]
         ys = [p[1] for p in box]
-        cleaned = ''.join(ch for ch in text.upper() if ch.isalnum())
+        cleaned = "".join(ch for ch in text.upper() if ch.isalnum())
         if not cleaned:
             continue
         cy = sum(ys) / 4.0
@@ -99,7 +106,7 @@ def _read_one(image):
                   font=font, fill=(255, 0, 0))
 
     if not items:
-        return disp, ''
+        return disp, ""
 
     # Gom thành các dòng theo toạ độ y
     items.sort()
@@ -117,7 +124,7 @@ def _read_one(image):
     cand = []
     for ln in lines:
         ln.sort(key=lambda x: x[1])
-        s = ''.join(x[3] for x in ln)
+        s = "".join(x[3] for x in ln)
         if any(ch.isdigit() for ch in s):
             cand.append([statistics.mean(x[0] for x in ln), s,
                          statistics.median([x[2] for x in ln])])
@@ -128,19 +135,19 @@ def _read_one(image):
     texts = [c[1] for c in cand]
 
     if len(texts) == 2:
-        return disp, _fix_top(texts[0]) + '-' + _fix_bottom(texts[1])
+        return disp, _fix_top(texts[0]) + "-" + _fix_bottom(texts[1])
     if len(texts) == 1:
         s = texts[0]
         # Biển vuông nhưng 2 dòng bị gộp -> tách 5 số cuối làm dòng dưới
         if two_line_shape and len(s) >= 8:
-            return disp, _fix_top(s[:-5]) + '-' + _fix_bottom(s[-5:])
+            return disp, _fix_top(s[:-5]) + "-" + _fix_bottom(s[-5:])
         return disp, _fix_top(s)
-    return disp, ''
+    return disp, ""
 
 
-def _deskew(image):
+def deskew(image):
     """Nắn thẳng biển nghiêng: xoay thử nhiều góc, chọn góc làm hàng chữ ngang nhất."""
-    rgb = np.array(image.convert('RGB'))
+    rgb = np.array(image.convert("RGB"))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     th = cv2.threshold(gray, 0, 255,
                        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
@@ -166,15 +173,15 @@ def _rec_line(bgr):
     out = _get_engine()(bgr, use_det=False, use_cls=False, use_rec=True)
     res = out[0] if isinstance(out, tuple) else out
     if not res:
-        return ''
+        return ""
     first = res[0]
     txt = first[0] if isinstance(first, (list, tuple)) else str(first)
-    return ''.join(ch for ch in txt.upper() if ch.isalnum())
+    return "".join(ch for ch in txt.upper() if ch.isalnum())
 
 
 def _read_split(image):
     """Nắn thẳng -> cắt 2 dòng theo projection -> OCR từng dòng."""
-    rgb = np.array(image.convert('RGB'))
+    rgb = np.array(image.convert("RGB"))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     H, W = gray.shape
     bgr = cv2.resize(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), (W * 3, H * 3),
@@ -192,14 +199,17 @@ def _read_split(image):
     top = bgr[:int(sp * H * 3)]
     bot = bgr[int(sp * H * 3):]
     t, b = _fix_top(_rec_line(top)), _fix_bottom(_rec_line(bot))
-    return disp, (t + '-' + b if t and b else t + b)
+    return disp, (t + "-" + b if t and b else t + b)
 
 
-def OCRRESULT(image, alt=None, reader=None):
-    """Thử nhiều cách đọc (gốc, căn chỉnh, tự nắn thẳng, cắt dòng) rồi chọn bản hợp lệ nhất."""
+def read_plate(image, alt=None):
+    """Thử nhiều cách đọc (gốc, căn chỉnh, tự nắn thẳng, cắt dòng) rồi chọn bản hợp lệ nhất.
+
+    Trả về (ảnh minh hoạ PIL, chuỗi biển số).
+    """
     desk = None
     try:
-        desk = _deskew(image)
+        desk = deskew(image)
     except Exception as e:
         print("Deskew error:", e)
 
@@ -224,5 +234,5 @@ def OCRRESULT(image, alt=None, reader=None):
             best = (sc, disp, text)
 
     if best is None:
-        return image, ''
+        return image, ""
     return best[1], best[2]
